@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, ChangeEvent, useRef } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Tooltip, ZoomControl, useMapEvents, Polygon, Marker, Pane } from 'react-leaflet';
 import L from 'leaflet';
 import { motion, AnimatePresence } from 'motion/react';
-import { Filter, Calendar, Info, Layers, ChevronRight, ChevronLeft, MapPin, ZoomIn, Download, Upload, TrendingUp, BarChart3, Trash2, FileText, XCircle, Loader2, RefreshCw, Lock, Unlock } from 'lucide-react';
+import { Filter, Calendar, Info, Layers, ChevronRight, ChevronLeft, MapPin, ZoomIn, Download, Upload, TrendingUp, BarChart3, Trash2, FileText, XCircle, Loader2, RefreshCw, Lock, Unlock, Database } from 'lucide-react';
 import { Sighting } from './types';
 import { SQUIRREL_GROUPS } from './groups_data';
 import { generateSingleAreaReport } from './pdfReportGenerator';
@@ -228,7 +228,8 @@ export default function App() {
   const [syncStatusMap, setSyncStatusMap] = useState<Record<string, any>>({});
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [allowNbnSync, setAllowNbnSync] = useState(() => {
-    return localStorage.getItem('allowNbnSync') === 'true';
+    const cached = localStorage.getItem('allowNbnSync');
+    return cached === null ? true : cached === 'true';
   });
 
   // Firebase Storage Integration State
@@ -1638,108 +1639,62 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Firebase Cloud Storage Status */}
+                {/* Database Connection & Sync Status */}
                 <div className="bg-white border border-stone-200 rounded-2xl p-4 space-y-3 shadow-xs">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-stone-700 font-bold text-[10px] uppercase tracking-wider">
-                      <Layers className="w-3 h-3 text-stone-500" /> Firebase Storage
+                      <Database className="w-3.5 h-3.5 text-stone-500" /> Database Engine: Local File Cache
                     </div>
-                    {firebaseStorageStatus?.configured ? (
-                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-sm uppercase tracking-wide flex items-center gap-1 ${
-                        firebaseStorageStatus.connectionOk 
-                          ? 'bg-green-50 text-green-700 border border-green-200' 
-                          : 'bg-amber-50 text-amber-700 border border-amber-200'
-                      }`}>
-                        {firebaseStorageStatus.connectionOk ? 'Active' : 'Error'}
-                      </span>
-                    ) : (
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 bg-stone-100 text-stone-600 border border-stone-200 rounded-sm uppercase tracking-wide">
-                        Offline
-                      </span>
-                    )}
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 bg-green-50 text-green-700 border border-green-200 rounded-sm uppercase tracking-wide">
+                      Active
+                    </span>
                   </div>
 
-                  {firebaseStorageStatus ? (
-                    <div className="space-y-2">
-                      {firebaseStorageStatus.configured ? (
-                        <>
-                          <div className="space-y-1">
-                            <label className="text-[9px] font-bold text-stone-400 uppercase tracking-wide">Bucket Name</label>
-                            <p className="text-[10px] font-mono bg-stone-50 px-2 py-1 rounded border border-stone-150 text-stone-600 break-all">
-                              {firebaseStorageStatus.bucketName}
-                            </p>
-                          </div>
-                          
-                          <div className="space-y-1">
-                            <label className="text-[9px] font-bold text-stone-400 uppercase tracking-wide">Connection Status</label>
-                            <p className={`text-[10.5px] leading-relaxed font-medium ${
-                              firebaseStorageStatus.connectionOk ? 'text-green-700' : 'text-amber-700'
-                            }`}>
-                              {firebaseStorageStatus.message}
-                            </p>
-                          </div>
-
-                          <div className="border-t border-stone-100 pt-2 mt-2 space-y-1.5 text-[9px] text-stone-500">
-                            <div className="flex justify-between font-semibold text-stone-600">
-                              <span>Local Write Cache:</span>
-                              <span className="font-mono">
-                                {(Object.values(firebaseStorageStatus.localGzExists) as number[]).reduce((a, b) => a + b, 0)} files
-                              </span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-x-2 gap-y-1 bg-stone-50 p-1.5 rounded border border-stone-100 font-mono text-[8.5px]">
-                              <div>Red: {firebaseStorageStatus.localGzExists.red || 0} yrs</div>
-                              <div>Grey: {firebaseStorageStatus.localGzExists.grey || 0} yrs</div>
-                              <div>Marten: {firebaseStorageStatus.localGzExists.marten || 0} yrs</div>
-                              <div>Traps: {firebaseStorageStatus.localGzExists.grey_trapping || 0} yrs</div>
-                            </div>
-                            <p className="leading-snug italic text-[8.5px] text-stone-400">
-                              Missing years will automatically stream from Storage and write into local cache on demand.
-                            </p>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="space-y-2">
-                          <p className="text-[10px] text-stone-600 leading-relaxed italic text-center p-2 bg-stone-50 rounded-xl border border-stone-100">
-                            No Storage Bucket configured. The application currently serves year-split datasets locally.
-                          </p>
-                        </div>
-                      )}
+                  <div className="space-y-2 text-[10px] text-stone-600 leading-relaxed">
+                    <p>
+                      The application executes in a fully automated <strong>Standard Local Cache Mode</strong>. Sighting occurrences are saved directly onto your server's local sandboxed disk.
+                    </p>
+                    <div className="bg-stone-50 p-2.5 rounded-xl border border-stone-150 space-y-1 text-[9px] text-stone-500">
+                      <div className="flex justify-between font-bold text-stone-600">
+                        <span>Local files cached:</span>
+                        <span className="font-mono">
+                          {firebaseStorageStatus ? (Object.values(firebaseStorageStatus.localGzExists) as number[]).reduce((a, b) => a + b, 0) : 0} years splits
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-[8.5px] text-stone-400">
+                        <div>Red: {firebaseStorageStatus?.localGzExists?.red || 0} yrs</div>
+                        <div>Grey: {firebaseStorageStatus?.localGzExists?.grey || 0} yrs</div>
+                        <div>Marten: {firebaseStorageStatus?.localGzExists?.marten || 0} yrs</div>
+                        <div>Traps: {firebaseStorageStatus?.localGzExists?.grey_trapping || 0} yrs</div>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="flex items-center justify-center p-4">
-                      <Loader2 className="w-4 h-4 text-stone-400 animate-spin" />
-                    </div>
-                  )}
+                    <p className="italic text-[9.5px] text-stone-500">
+                      Simply use the <strong>Sync with NBN Atlas</strong> action below to populate or update the map. Zero account keys, scripts, or cloud configurations are required!
+                    </p>
+                  </div>
 
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      onClick={checkFirebaseStorageStatus}
-                      disabled={checkingFirebaseStorage}
-                      className="flex-1 py-1 px-2 border border-stone-200 hover:border-stone-400 hover:bg-stone-50 text-stone-600 rounded-lg text-[9.5px] font-bold transition-all flex items-center justify-center gap-1 cursor-pointer active:scale-95"
-                    >
-                      <RefreshCw className={`w-3 h-3 ${checkingFirebaseStorage ? 'animate-spin' : ''}`} />
-                      Refresh Connection
-                    </button>
-
+                  <div className="border-t border-stone-100 pt-3">
                     <button
                       onClick={() => setShowStorageInstructions(!showStorageInstructions)}
-                      className={`flex-1 py-1 px-2 border rounded-lg text-[9.5px] font-bold transition-all flex items-center justify-center gap-1 cursor-pointer active:scale-95 ${
+                      className={`w-full py-1.5 px-2 border rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
                         showStorageInstructions 
-                          ? 'bg-stone-900 border-stone-900 text-white hover:bg-black' 
-                          : 'bg-white border-stone-200 hover:border-stone-400 text-stone-600 hover:bg-stone-50'
+                          ? 'bg-amber-600 border-amber-600 text-white hover:bg-amber-700 shadow-sm' 
+                          : 'bg-stone-50 border-stone-200 text-stone-500 hover:text-stone-700 hover:bg-stone-100'
                       }`}
                     >
-                      <Info className="w-3 h-3" />
-                      {showStorageInstructions ? "Hide Manual" : "Setup Manual"}
+                      <Info className="w-3.5 h-3.5" />
+                      {showStorageInstructions ? "Hide Firebase Storage (Optional)" : "Show Firebase Storage (Optional)"}
                     </button>
                   </div>
 
                   {showStorageInstructions && (
-                    <div className="mt-3 p-3 bg-stone-50 rounded-xl border border-stone-200 text-[9px] text-stone-600 space-y-2.5 max-h-60 overflow-y-auto leading-normal">
-                      <p className="font-bold text-stone-800 border-b border-stone-150 pb-1">
-                        Step-by-Step Approach A Setup:
+                    <div className="mt-2 p-3 bg-stone-50 rounded-xl border border-stone-150 text-[9px] text-stone-600 space-y-2 max-h-60 overflow-y-auto leading-normal">
+                      <p className="font-bold text-stone-700 uppercase tracking-widest text-[8.5px] border-b border-stone-200 pb-1">
+                        Advanced Cloud Storage Setup:
                       </p>
-                      
+                      <p>
+                        Firebase Cloud Storage is purely optional. It is useful if you want to hold static database splits in a centralized cloud bucket rather than local container storage (useful in multi-container / serverless scale-outs).
+                      </p>
                       <div className="space-y-1">
                         <span className="font-bold text-stone-700">1. Setup Storage Bucket:</span>
                         <p>Create a Firebase Project and enable Cloud Storage. Copy your static bucket name (example: <code>your-app.firebasestorage.app</code>).</p>
@@ -1747,7 +1702,7 @@ export default function App() {
 
                       <div className="space-y-1">
                         <span className="font-bold text-stone-700">2. Configure Secrets:</span>
-                        <p>Add environment secret <strong><code>FIREBASE_STORAGE_BUCKET</code></strong> in your AI Studio Build UI (Settings to Secrets) and assign your bucket name.</p>
+                        <p>Add environment secret <strong><code>FIREBASE_STORAGE_BUCKET</code></strong> in your AI Studio Build UI (Secrets) and assign your bucket name.</p>
                       </div>
 
                       <div className="space-y-1">
@@ -1767,162 +1722,113 @@ service firebase.storage {
                       </div>
 
                       <div className="space-y-1">
-                        <span className="font-bold text-stone-700">4. Run Sync & Export:</span>
-                        <p>If you fetch new NBN database items, you can find the compiled year-split <code>.json.gz</code> files in the workspace local <code>downloads/</code> or <code>data/</code> folder.</p>
-                      </div>
-
-                      <div className="space-y-1">
-                        <span className="font-bold text-stone-700">5. Upload Files to Firebase:</span>
-                        <p>Simply drag and drop either the <code>.json</code> or <code>.json.gz</code> files from your local downloads directly into your Firebase storage bucket root. If you upload uncompressed <code>.json</code> files, the app backend automatically compresses them to GZ format on-the-fly when first requested, saving you storage and maintaining super-fast load speeds!</p>
+                        <span className="font-bold text-stone-700">4. Connection status:</span>
+                        <p className="font-mono text-[8.5px] bg-stone-100 p-1 rounded font-medium my-0.5 break-all text-amber-800">
+                          {firebaseStorageStatus?.configured ? `Bucket name: ${firebaseStorageStatus.bucketName}. Status: ${firebaseStorageStatus.message}` : "No bucket configured. Serving locally."}
+                        </p>
                       </div>
                     </div>
                   )}
                 </div>
               </div>
 
-              {!import.meta.env.PROD && (
-                <div className="p-6 bg-stone-50 border-t border-stone-200 space-y-4">
-                  {/* NBN Sync Lock Controller Toggle Panel */}
-                  <div className="p-3 bg-white border border-stone-200 rounded-xl space-y-2.5 shadow-xs">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        {allowNbnSync ? (
-                          <div className="p-1.5 bg-amber-50 rounded-lg text-amber-700">
-                            <Unlock className="w-3.5 h-3.5" />
-                          </div>
-                        ) : (
-                          <div className="p-1.5 bg-stone-100 rounded-lg text-stone-500">
-                            <Lock className="w-3.5 h-3.5" />
-                          </div>
-                        )}
-                        <div>
-                          <h4 className="text-[10px] font-bold text-stone-700 uppercase tracking-wide">
-                            NBN Sync: {allowNbnSync ? "Unlocked" : "Locked"}
-                          </h4>
-                          <p className="text-[9px] text-stone-500 leading-tight">
-                            {allowNbnSync 
-                              ? "NBN Atlas integration is armed." 
-                              : "Connections to NBN Atlas are blocked."}
-                          </p>
-                        </div>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input 
-                          type="checkbox" 
-                          checked={allowNbnSync}
-                          onChange={(e) => {
-                            const val = e.target.checked;
-                            setAllowNbnSync(val);
-                            localStorage.setItem('allowNbnSync', val ? 'true' : 'false');
-                          }}
-                          className="sr-only peer"
-                        />
-                        <div className="w-8 h-4 bg-stone-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-600"></div>
-                      </label>
-                    </div>
-                  </div>
-
+              <div className="p-6 bg-stone-50 border-t border-stone-200 space-y-4">
+                <button 
+                  onClick={refreshData}
+                  disabled={isSyncing}
+                  className={`w-full py-3 border rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm hover:shadow-md ${
+                    isSyncing 
+                      ? 'bg-amber-50 border-amber-200 text-amber-700 cursor-not-allowed' 
+                      : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-100'
+                  }`}
+                >
+                  {isSyncing ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+                      FETCHING {((syncStatusMap.red?.count || 0) + (syncStatusMap.grey?.count || 0) + (syncStatusMap.marten?.count || 0) + (syncStatusMap.grey_trapping?.count || 0)).toLocaleString()} / {((syncStatusMap.red?.totalEstimated || 0) + (syncStatusMap.grey?.totalEstimated || 0) + (syncStatusMap.marten?.totalEstimated || 0) + (syncStatusMap.grey_trapping?.totalEstimated || 0)).toLocaleString()}
+                    </>
+                  ) : (
+                    'SYNC WITH NBN ATLAS'
+                  )}
+                </button>
+                {isSyncing ? (
                   <button 
-                    onClick={refreshData}
-                    disabled={isSyncing || !allowNbnSync}
-                    className={`w-full py-3 border rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm hover:shadow-md ${
-                      isSyncing 
-                        ? 'bg-amber-50 border-amber-200 text-amber-700 cursor-not-allowed' 
-                        : !allowNbnSync
-                        ? 'bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed'
-                        : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-100'
+                    onClick={cancelSync}
+                    className={`w-full py-3 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-2 shadow-xs border ${
+                      confirmCancel 
+                        ? 'bg-red-600 border-red-600 text-white animate-pulse' 
+                        : 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100'
                     }`}
                   >
-                    {isSyncing ? (
-                      <>
-                        <div className="w-3 h-3 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
-                        FETCHING {((syncStatusMap.red?.count || 0) + (syncStatusMap.grey?.count || 0) + (syncStatusMap.marten?.count || 0) + (syncStatusMap.grey_trapping?.count || 0)).toLocaleString()} / {((syncStatusMap.red?.totalEstimated || 0) + (syncStatusMap.grey?.totalEstimated || 0) + (syncStatusMap.marten?.totalEstimated || 0) + (syncStatusMap.grey_trapping?.totalEstimated || 0)).toLocaleString()}
-                      </>
-                    ) : !allowNbnSync ? (
-                      'NBN ATLAS SYNC IS LOCKED'
-                    ) : (
-                      'SYNC WITH NBN ATLAS'
-                    )}
+                    {confirmCancel ? 'CONFIRM CANCEL & RESET?' : 'CANCEL & RESET COUNTERS'}
                   </button>
-                  {isSyncing ? (
-                    <button 
-                      onClick={cancelSync}
-                      className={`w-full py-3 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-2 shadow-xs border ${
-                        confirmCancel 
-                          ? 'bg-red-600 border-red-600 text-white animate-pulse' 
-                          : 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100'
-                      }`}
-                    >
-                      {confirmCancel ? 'CONFIRM CANCEL & RESET?' : 'CANCEL & RESET COUNTERS'}
-                    </button>
-                  ) : (
-                    <button 
-                      type="button"
-                      onClick={cancelSync}
-                      className={`w-full py-2 border rounded-xl text-[10px] font-semibold transition-all active:scale-95 flex items-center justify-center gap-1.5 ${
-                        confirmCancel 
-                          ? 'bg-red-600 border-red-600 text-white animate-pulse' 
-                          : 'bg-transparent hover:bg-red-50 hover:text-red-700 text-stone-500 hover:border-red-100 border-transparent'
-                      }`}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      {confirmCancel ? 'CONFIRM WIPE & RESET?' : 'WIPE PROGRESS & RESET COUNTERS'}
-                    </button>
-                  )}
+                ) : (
                   <button 
-                    onClick={() => handleDownload('json')}
-                    className="w-full py-3 bg-stone-900 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-lg hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-2"
+                    type="button"
+                    onClick={cancelSync}
+                    className={`w-full py-2 border rounded-xl text-[10px] font-semibold transition-all active:scale-95 flex items-center justify-center gap-1.5 ${
+                      confirmCancel 
+                        ? 'bg-red-600 border-red-600 text-white animate-pulse' 
+                        : 'bg-transparent hover:bg-red-50 hover:text-red-700 text-stone-500 hover:border-red-100 border-transparent'
+                    }`}
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    EXPORT DATABASE (.JSON)
+                    <Trash2 className="w-3 h-3" />
+                    {confirmCancel ? 'CONFIRM WIPE & RESET?' : 'WIPE PROGRESS & RESET COUNTERS'}
                   </button>
-                  <button 
-                    onClick={() => document.getElementById('local-db-upload')?.click()}
-                    className="w-full py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    LOAD LOCAL COPY (from Downloads)
-                  </button>
-                  
-                  {/* Dedicated Completed split files list */}
-                  {Object.keys(syncStatusMap).some(sku => syncStatusMap[sku]?.completedYears?.length > 0) && (
-                    <div className="mt-3 p-3 bg-amber-50/50 border border-amber-100 rounded-xl space-y-2">
-                      <div className="text-[9px] uppercase font-bold text-stone-600 tracking-wider flex items-center justify-between">
-                        <span>Completed Year Splits ({Object.values(syncStatusMap).reduce((sum: number, curr: any) => sum + (curr?.completedYears?.length || 0), 0)} files)</span>
-                      </div>
-                      <div className="max-h-32 overflow-y-auto space-y-1.5 text-[10px]">
-                        {['red', 'grey', 'marten', 'grey_trapping'].map(sKey => {
-                          const completed = syncStatusMap[sKey]?.completedYears || [];
-                          if (completed.length === 0) return null;
-                          return (
-                            <div key={sKey} className="flex flex-wrap items-center gap-1">
-                              <span className="font-semibold text-stone-500 capitalize min-w-[55px] text-[9px]">{sKey.replace('_', ' ')}:</span>
-                              {completed.slice().sort((a: number, b: number) => b - a).map((y: number) => (
-                                <button
-                                  key={y}
-                                  onClick={() => downloadYearFile(sKey, y)}
-                                  className="px-1.5 py-0.5 bg-white border border-stone-200 text-stone-700 rounded-md hover:bg-stone-50 hover:border-stone-300 transition-all font-mono text-[9px] flex items-center gap-0.5 shadow-2xs cursor-pointer active:scale-90"
-                                  title={`Download ${sKey}_${y}.json`}
-                                >
-                                  <Download className="w-2.5 h-2.5" />
-                                  {y}
-                                </button>
-                              ))}
-                            </div>
-                          );
-                        })}
-                      </div>
+                )}
+                <button 
+                  onClick={() => handleDownload('json')}
+                  className="w-full py-3 bg-stone-900 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-lg hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  EXPORT DATABASE (.JSON)
+                </button>
+                <button 
+                  onClick={() => document.getElementById('local-db-upload')?.click()}
+                  className="w-full py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  LOAD LOCAL COPY (from Downloads)
+                </button>
+                
+                {/* Dedicated Completed split files list */}
+                {Object.keys(syncStatusMap).some(sku => syncStatusMap[sku]?.completedYears?.length > 0) && (
+                  <div className="mt-3 p-3 bg-amber-50/50 border border-amber-100 rounded-xl space-y-2">
+                    <div className="text-[9px] uppercase font-bold text-stone-600 tracking-wider flex items-center justify-between">
+                      <span>Completed Year Splits ({Object.values(syncStatusMap).reduce((sum: number, curr: any) => sum + (curr?.completedYears?.length || 0), 0)} files)</span>
                     </div>
-                  )}
-                  <input 
-                    id="local-db-upload"
-                    type="file"
-                    accept=".json"
-                    onChange={handleLocalImport}
-                    className="hidden"
-                  />
-                </div>
-              )}
+                    <div className="max-h-32 overflow-y-auto space-y-1.5 text-[10px]">
+                      {['red', 'grey', 'marten', 'grey_trapping'].map(sKey => {
+                        const completed = syncStatusMap[sKey]?.completedYears || [];
+                        if (completed.length === 0) return null;
+                        return (
+                          <div key={sKey} className="flex flex-wrap items-center gap-1">
+                            <span className="font-semibold text-stone-500 capitalize min-w-[55px] text-[9px]">{sKey.replace('_', ' ')}:</span>
+                            {completed.slice().sort((a: number, b: number) => b - a).map((y: number) => (
+                              <button
+                                key={y}
+                                onClick={() => downloadYearFile(sKey, y)}
+                                className="px-1.5 py-0.5 bg-white border border-stone-200 text-stone-700 rounded-md hover:bg-stone-50 hover:border-stone-300 transition-all font-mono text-[9px] flex items-center gap-0.5 shadow-2xs cursor-pointer active:scale-90"
+                                title={`Download ${sKey}_${y}.json`}
+                              >
+                                <Download className="w-2.5 h-2.5" />
+                                {y}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                <input 
+                  id="local-db-upload"
+                  type="file"
+                  accept=".json"
+                  onChange={handleLocalImport}
+                  className="hidden"
+                />
+              </div>
             </motion.aside>
           )}
         </AnimatePresence>

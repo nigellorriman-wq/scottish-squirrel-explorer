@@ -1040,6 +1040,16 @@ async function startServer() {
     await loadProgressFromFile();
     await loadDataFromFile();
 
+    // Auto-bootstrap direct NBN sync if database is completely empty (no cached files on disk)
+    const totalLocalCount = (syncStatus.red?.count || 0) + (syncStatus.grey?.count || 0) + (syncStatus.marten?.count || 0) + (syncStatus.grey_trapping?.count || 0);
+    if (totalLocalCount === 0) {
+      console.log("[Bootstrap] Local database is empty. Triggering automatic background direct sync from NBN Atlas to bootstrap squirrel records...");
+      enqueueSync('red', false);
+      enqueueSync('grey', false);
+      enqueueSync('marten', false);
+      enqueueSync('grey_trapping', false);
+    }
+
     console.log(`[Server] Starting in ${process.env.NODE_ENV || 'development'} mode`);
 
     app.use(express.json({ limit: "200mb" }));
@@ -1068,13 +1078,26 @@ async function startServer() {
 
   // Firebase Storage Status & Diagnostic Endpoint
   app.get("/api/firebase-storage-status", async (req, res) => {
+    const currentYear = new Date().getFullYear();
+    const localGzExists: Record<string, number> = { red: 0, grey: 0, marten: 0, grey_trapping: 0 };
+    for (const species of ['red', 'grey', 'marten', 'grey_trapping']) {
+      for (let y = 2000; y <= currentYear; y++) {
+        const gzPath = getSpeciesYearFilePath(species, y);
+        if (existsSync(gzPath)) {
+          localGzExists[species]++;
+        }
+      }
+    }
+
     const bucketName = process.env.FIREBASE_STORAGE_BUCKET || firebaseConfig?.storageBucket;
     if (!bucketName || bucketName === "MY_FIREBASE_STORAGE_BUCKET" || bucketName.trim() === "") {
       return res.json({
         configured: false,
         bucketName: "",
         connectionOk: false,
-        message: "Firebase Storage Bucket is not configured. Set FIREBASE_STORAGE_BUCKET in your Secrets/Environment variables to enable Cloud Storage downloads."
+        message: "Firebase Storage Bucket is not configured. Set FIREBASE_STORAGE_BUCKET in your Secrets/Environment variables to enable Cloud Storage downloads.",
+        localGzExists,
+        currentYear
       });
     }
 
@@ -1100,17 +1123,6 @@ async function startServer() {
       } else {
         connectionOk = false;
         message = `Connection failed: ${err.message || 'Unknown network error'}. Verify your bucket name: '${bucketName}' and ensure it has public read active.`;
-      }
-    }
-
-    const currentYear = new Date().getFullYear();
-    const localGzExists: Record<string, number> = { red: 0, grey: 0, marten: 0, grey_trapping: 0 };
-    for (const species of ['red', 'grey', 'marten', 'grey_trapping']) {
-      for (let y = 2000; y <= currentYear; y++) {
-        const gzPath = getSpeciesYearFilePath(species, y);
-        if (existsSync(gzPath)) {
-          localGzExists[species]++;
-        }
       }
     }
 
