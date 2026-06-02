@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Scottish Squirrel Sightings Explorer-Firebase Edn",
+  "description": "A custom mapping tool for the Central Borders Red Squirrel Network to visualize squirrel sightings data from Saving Scotland\u0027s Red Squirrels / NBN Atlas.-Firebase Edn",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,16 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+data/
+downloads/
+*.gz
+*.json.gz
+grey_*.json
+red_*.json
+marten_*.json
+grey_trapping_*.json
