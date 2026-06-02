@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import axios from "axios";
 import NodeCache from "node-cache";
 import fs from "fs/promises";
@@ -1782,6 +1781,8 @@ async function startServer() {
   
   if (!isProduction) {
     try {
+      // Dynamically import Vite only during development to avoid production crashes
+      const { createServer: createViteServer } = await import("vite");
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: "spa",
