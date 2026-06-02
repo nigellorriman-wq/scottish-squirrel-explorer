@@ -271,58 +271,36 @@ async function saveDataToFile(species?: 'red' | 'grey' | 'marten' | 'grey_trappi
   }
 }
 
-async function fetchAndCacheFromFirebaseStorage(species: string, year: number): Promise<Buffer | null> {
-  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || firebaseConfig?.storageBucket;
-  if (!bucketName || bucketName === "MY_FIREBASE_STORAGE_BUCKET" || bucketName.trim() === "") {
-    return null;
-  }
-  
+async function compileAndCacheFromLocalFiles(species: string, year: number): Promise<Buffer | null> {
   const fileNameGz = `${species}_${year}.json.gz`;
-  const urlGz = `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(fileNameGz)}?alt=media`;
-  
-  // Try compressed first
-  try {
-    console.log(`[Firebase Storage] Remote check: testing compressed file ${fileNameGz} from: ${urlGz}`);
-    const response = await axios.get(urlGz, { responseType: 'arraybuffer', timeout: 20000 });
-    if (response.status === 200) {
-      const buffer = Buffer.from(response.data);
-      const yearFilePathGz = getSpeciesYearFilePath(species, year);
+  const fileNameJson = `${species}_${year}.json`;
+  const yearFilePathGz = getSpeciesYearFilePath(species, year);
+
+  // Check processes in root
+  const rootJson = path.join(process.cwd(), fileNameJson);
+  const rootGz = path.join(process.cwd(), fileNameGz);
+
+  if (existsSync(rootGz)) {
+    try {
+      const buffer = await fs.readFile(rootGz);
       await fs.writeFile(yearFilePathGz, buffer);
-      console.log(`[Firebase Storage] Successfully downloaded and cached compressed file ${fileNameGz} locally.`);
+      console.log(`[Local Compilation] Loaded and cached gzipped file ${fileNameGz} from root.`);
       return buffer;
-    }
-  } catch (err: any) {
-    if (err.response && err.response.status === 404) {
-      console.log(`[Firebase Storage] Compressed file ${fileNameGz} not found (404). Trying uncompressed .json instead...`);
-    } else {
-      console.warn(`[Firebase Storage] Network check failed for ${fileNameGz}:`, err.message);
+    } catch (e: any) {
+      console.error(`[Local Compilation] Failed to read/write ${rootGz}:`, e.message);
     }
   }
 
-  // Fallback to uncompressed JSON
-  const fileNameJson = `${species}_${year}.json`;
-  const urlJson = `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(fileNameJson)}?alt=media`;
-  
-  try {
-    console.log(`[Firebase Storage] Remote fallback check: downloading uncompressed file ${fileNameJson} from: ${urlJson}`);
-    const response = await axios.get(urlJson, { responseType: 'arraybuffer', timeout: 35000 });
-    if (response.status === 200) {
-      const uncompressedBuffer = Buffer.from(response.data);
-      
-      // Auto-compress the raw JSON to gzip in the backend on the fly
-      console.log(`[Firebase Storage] Downloaded raw file ${fileNameJson} (${uncompressedBuffer.length} bytes). Compressing to GZ on-the-fly...`);
-      const zippedBuffer = zlib.gzipSync(uncompressedBuffer);
-      
-      const yearFilePathGz = getSpeciesYearFilePath(species, year);
-      await fs.writeFile(yearFilePathGz, zippedBuffer);
-      console.log(`[Firebase Storage] Successfully compressed and cached ${fileNameJson} locally as ${yearFilePathGz} (${zippedBuffer.length} bytes).`);
-      return zippedBuffer;
-    }
-  } catch (err: any) {
-    if (err.response && err.response.status === 404) {
-      console.log(`[Firebase Storage] File ${fileNameJson} not found in Storage either (404). No records for ${year}.`);
-    } else {
-      console.error(`[Firebase Storage] Network error downloading uncompressed file ${fileNameJson}:`, err.message);
+  if (existsSync(rootJson)) {
+    try {
+      const rawContent = await fs.readFile(rootJson);
+      console.log(`[Local Compilation] Compressing raw file ${fileNameJson} to GZ on-the-fly...`);
+      const zippedContent = zlib.gzipSync(rawContent);
+      await fs.writeFile(yearFilePathGz, zippedContent);
+      console.log(`[Local Compilation] Successfully compiled ${fileNameJson} to ${yearFilePathGz}`);
+      return zippedContent;
+    } catch (e: any) {
+      console.error(`[Local Compilation] Failed to gzip compile ${rootJson}:`, e.message);
     }
   }
 
@@ -358,8 +336,8 @@ async function ensureSpeciesLoaded(species: 'red' | 'grey' | 'marten' | 'grey_tr
       yearFilePath = legacyJsonPath;
       isCompressed = false;
     } else {
-      // Try to load from remote Firebase Storage
-      const buffer = await fetchAndCacheFromFirebaseStorage(species, year);
+      // Try to load from local root files compiled on the fly
+      const buffer = await compileAndCacheFromLocalFiles(species, year);
       if (buffer) {
         yearFilePath = yearFilePathGz;
         isCompressed = true;
@@ -1031,6 +1009,119 @@ function enqueueSync(species: 'red' | 'grey' | 'marten' | 'grey_trapping', force
   processSyncQueue();
 }
 
+async function bootstrapLocalDataOnBoot() {
+  try {
+    await ensureDataDir();
+    console.log("[Bootstrap] Commencing startup data validation and compression...");
+
+    const rootFiles = await fs.readdir(process.cwd());
+    const speciesList: ('red' | 'grey' | 'marten' | 'grey_trapping')[] = ['red', 'grey', 'marten', 'grey_trapping'];
+    
+    let compiledCount = 0;
+    
+    for (const file of rootFiles) {
+      const match = speciesList.find(s => file.startsWith(s + "_"));
+      if (!match) continue;
+      
+      if (file.endsWith('.json')) {
+        // Find matching year
+        const yearStr = file.substring(match.length + 1).replace('.json', '');
+        const year = parseInt(yearStr);
+        if (isNaN(year)) continue;
+        
+        const targetGz = getSpeciesYearFilePath(match, year);
+        // Compile/compress if target does not exist or has 0 size
+        let needsCompile = true;
+        if (existsSync(targetGz)) {
+          const stats = statSync(targetGz);
+          if (stats.size > 0) {
+            needsCompile = false;
+          }
+        }
+        
+        if (needsCompile) {
+          const filePath = path.join(process.cwd(), file);
+          const rawContent = await fs.readFile(filePath);
+          // Quick syntax check
+          try {
+            JSON.parse(rawContent.toString('utf-8'));
+            const zipped = zlib.gzipSync(rawContent);
+            await fs.writeFile(targetGz, zipped);
+            compiledCount++;
+          } catch (pe) {
+            console.error(`[Bootstrap] Skip compiling ${file} due to corrupt JSON formatting:`, pe);
+          }
+        }
+      } else if (file.endsWith('.json.gz')) {
+        const yearStr = file.substring(match.length + 1).replace('.json.gz', '');
+        const year = parseInt(yearStr);
+        if (isNaN(year)) continue;
+        
+        const targetGz = getSpeciesYearFilePath(match, year);
+        if (!existsSync(targetGz)) {
+          await fs.copyFile(path.join(process.cwd(), file), targetGz);
+          compiledCount++;
+        }
+      }
+    }
+    
+    if (compiledCount > 0) {
+      console.log(`[Bootstrap] Compiled and cached ${compiledCount} datasets to the local workspace.`);
+    }
+
+    // Now, scan all datasets inside DATA_DIR to recalculate records counts if needed
+    let progressNeedsSaving = false;
+    
+    for (const species of speciesList) {
+      const store = syncProgressStore[species] || { completedYears: [], isComplete: false, count: 0 };
+      const yearsInDir: number[] = [];
+      let totalRecords = 0;
+      
+      const currentYear = new Date().getFullYear();
+      for (let y = 2000; y <= currentYear; y++) {
+        const gzPath = getSpeciesYearFilePath(species, y);
+        if (existsSync(gzPath)) {
+          yearsInDir.push(y);
+        }
+      }
+      
+      // Determine if our loaded progress file matches the files actually present
+      const isMissingProgressInfo = !store.completedYears || store.completedYears.length !== yearsInDir.length;
+      
+      if (isMissingProgressInfo || (store.count === 0 && yearsInDir.length > 0)) {
+        console.log(`[Bootstrap] Rebuilding metadata cache for species '${species}'...`);
+        for (const y of yearsInDir) {
+          const gzPath = getSpeciesYearFilePath(species, y);
+          try {
+            const buffer = await fs.readFile(gzPath);
+            const dataStr = zlib.gunzipSync(buffer).toString('utf-8');
+            const parsed = JSON.parse(dataStr);
+            if (parsed && typeof parsed === 'object' && Array.isArray(parsed.records)) {
+              totalRecords += parsed.records.length;
+            }
+          } catch (readErr) {
+            console.error(`[Bootstrap] Error parsing cached ${gzPath}:`, readErr);
+          }
+        }
+        
+        store.completedYears = yearsInDir.sort((a,b)=>a-b);
+        store.count = totalRecords;
+        store.isComplete = true;
+        store.hasBootstrapped = true;
+        syncProgressStore[species] = store;
+        progressNeedsSaving = true;
+      }
+    }
+    
+    if (progressNeedsSaving) {
+      await saveProgressToFile();
+      console.log("[Bootstrap] Local metadata database state saved successfully.");
+    }
+  } catch (err: any) {
+    console.error("[Bootstrap] Critical failure in local bootstrap process:", err);
+  }
+}
+
 async function startServer() {
   try {
     const app = express();
@@ -1038,17 +1129,8 @@ async function startServer() {
 
     // Load initial data
     await loadProgressFromFile();
+    await bootstrapLocalDataOnBoot();
     await loadDataFromFile();
-
-    // Auto-bootstrap direct NBN sync if database is completely empty (no cached files on disk)
-    const totalLocalCount = (syncStatus.red?.count || 0) + (syncStatus.grey?.count || 0) + (syncStatus.marten?.count || 0) + (syncStatus.grey_trapping?.count || 0);
-    if (totalLocalCount === 0) {
-      console.log("[Bootstrap] Local database is empty. Triggering automatic background direct sync from NBN Atlas to bootstrap squirrel records...");
-      enqueueSync('red', false);
-      enqueueSync('grey', false);
-      enqueueSync('marten', false);
-      enqueueSync('grey_trapping', false);
-    }
 
     console.log(`[Server] Starting in ${process.env.NODE_ENV || 'development'} mode`);
 
@@ -1076,8 +1158,8 @@ async function startServer() {
     });
   });
 
-  // Firebase Storage Status & Diagnostic Endpoint
-  app.get("/api/firebase-storage-status", async (req, res) => {
+  // Local Database Cache Status & Diagnostics Endpoint
+  app.get("/api/local-storage-status", async (req, res) => {
     const currentYear = new Date().getFullYear();
     const localGzExists: Record<string, number> = { red: 0, grey: 0, marten: 0, grey_trapping: 0 };
     for (const species of ['red', 'grey', 'marten', 'grey_trapping']) {
@@ -1089,48 +1171,7 @@ async function startServer() {
       }
     }
 
-    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || firebaseConfig?.storageBucket;
-    if (!bucketName || bucketName === "MY_FIREBASE_STORAGE_BUCKET" || bucketName.trim() === "") {
-      return res.json({
-        configured: false,
-        bucketName: "",
-        connectionOk: false,
-        message: "Firebase Storage Bucket is not configured. Set FIREBASE_STORAGE_BUCKET in your Secrets/Environment variables to enable Cloud Storage downloads.",
-        localGzExists,
-        currentYear
-      });
-    }
-
-    const testFileName = "red_2024.json.gz";
-    const testUrl = `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(testFileName)}?alt=media`;
-    
-    let connectionOk = false;
-    let message = "";
-    
-    try {
-      const testRes = await axios.head(testUrl, { timeout: 4000 });
-      if (testRes.status === 200) {
-        connectionOk = true;
-        message = `Healthy connection! Test file '${testFileName}' found inside remote Firebase Storage bucket '${bucketName}'.`;
-      } else {
-        connectionOk = false;
-        message = `HTTP status ${testRes.status} received when probing '${testFileName}'.`;
-      }
-    } catch (err: any) {
-      if (err.response && err.response.status === 404) {
-        connectionOk = true;
-        message = `Connected successfully! However, file '${testFileName}' was not found in bucket '${bucketName}'. Make sure to upload your .json.gz files directly to Firebase.`;
-      } else {
-        connectionOk = false;
-        message = `Connection failed: ${err.message || 'Unknown network error'}. Verify your bucket name: '${bucketName}' and ensure it has public read active.`;
-      }
-    }
-
     res.json({
-      configured: true,
-      bucketName,
-      connectionOk,
-      message,
       localGzExists,
       currentYear
     });
