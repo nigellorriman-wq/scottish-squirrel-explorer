@@ -13,8 +13,8 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const resolvedFilename = typeof __filename !== "undefined" ? __filename : fileURLToPath(import.meta.url);
+const resolvedDirname = typeof __dirname !== "undefined" ? __dirname : path.dirname(resolvedFilename);
 
 let firebaseConfig: any = null;
 const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
@@ -69,10 +69,10 @@ function isSquarePartiallyInPolygon(lat: number, lon: number, polygon: [number, 
 const sightingsCache = new NodeCache({ stdTTL: 86400, checkperiod: 3600 });
 
 let DATA_DIR = path.join(process.cwd(), "data");
-if (existsSync(path.join(__dirname, "data"))) {
-  DATA_DIR = path.join(__dirname, "data");
-} else if (existsSync(path.join(__dirname, "../data"))) {
-  DATA_DIR = path.join(__dirname, "../data");
+if (existsSync(path.join(resolvedDirname, "data"))) {
+  DATA_DIR = path.join(resolvedDirname, "data");
+} else if (existsSync(path.join(resolvedDirname, "../data"))) {
+  DATA_DIR = path.join(resolvedDirname, "../data");
 }
 
 const DATA_FILE = path.join(DATA_DIR, "squirrel_sightings.json");
