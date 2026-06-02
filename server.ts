@@ -1775,18 +1775,45 @@ async function startServer() {
     res.status(404).json({ error: "API route not found" });
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+  // Vite middleware for development vs Static static files
+  const isProduction = process.env.NODE_ENV === "production" || resolvedFilename.endsWith("server.cjs");
+  
+  console.log(`[Server] Routing mode: ${isProduction ? 'PRODUCTION (Static serving)' : 'DEVELOPMENT (Vite middleware)'}`);
+  
+  if (!isProduction) {
+    try {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+      console.log("[Server] Vite middleware loaded successfully.");
+    } catch (err: any) {
+      console.warn("[Server] Vite middleware failed to load, falling back to static serving:", err.message);
+      const distPath = path.join(process.cwd(), "dist");
+      app.use(express.static(distPath));
+      app.get("*", (req, res) => {
+        const targetIndex = path.join(distPath, "index.html");
+        if (existsSync(targetIndex)) {
+          res.sendFile(targetIndex);
+        } else {
+          res.status(404).send(`Error: index.html not found in development fallback. Process CWD: ${process.cwd()}`);
+        }
+      });
+    }
   } else {
     const distPath = path.join(process.cwd(), "dist");
+    console.log(`[Server] Mounting static assets from: ${distPath}`);
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      const targetIndex = path.join(distPath, "index.html");
+      console.log(`[Server GET *] Serving SPA fallback index: ${targetIndex}`);
+      if (existsSync(targetIndex)) {
+        res.sendFile(targetIndex);
+      } else {
+        console.error(`[Server GET *] index.html not found at: ${targetIndex}!`);
+        res.status(404).send(`Error: index.html not found. Process CWD: ${process.cwd()}`);
+      }
     });
   }
 
