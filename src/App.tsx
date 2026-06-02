@@ -951,53 +951,151 @@ export default function App() {
   };
 
   const handleLocalImport = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
     setActionLoading(true);
     try {
-      const text = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsText(file);
-      });
+      // Step 1: Fetch current server database schema to serve as baseline for merge
+      const currentDb: { red: any[]; grey: any[]; marten: any[]; grey_trapping: any[] } = {
+        red: [],
+        grey: [],
+        marten: [],
+        grey_trapping: []
+      };
 
-      // Simple frontend verification
-      let parsed;
       try {
-        parsed = JSON.parse(text);
-      } catch (err) {
-        throw new Error('Invalid JSON format. Please ensure you are loading a valid exported JSON database file.');
+        const baselineRes = await fetch('/api/export');
+        if (baselineRes.ok) {
+          const baselineData = await baselineRes.json();
+          if (baselineData && typeof baselineData === 'object') {
+            if (Array.isArray(baselineData.red)) currentDb.red = baselineData.red;
+            if (Array.isArray(baselineData.grey)) currentDb.grey = baselineData.grey;
+            if (Array.isArray(baselineData.marten)) currentDb.marten = baselineData.marten;
+            if (Array.isArray(baselineData.grey_trapping)) currentDb.grey_trapping = baselineData.grey_trapping;
+          }
+        }
+      } catch (baselineErr) {
+        console.warn('Could not load baseline database for merging:', baselineErr);
       }
 
-      const hasRed = Array.isArray(parsed.red);
-      const hasGrey = Array.isArray(parsed.grey);
-      const hasMarten = Array.isArray(parsed.marten);
+      // Keep tracked changes
+      const mergedDb = {
+        red: [...currentDb.red],
+        grey: [...currentDb.grey],
+        marten: [...currentDb.marten],
+        grey_trapping: [...currentDb.grey_trapping]
+      };
 
-      if (!hasRed && !hasGrey && !hasMarten) {
-        throw new Error('Invalid database structure. The file must contain red, grey, or marten records.');
+      // Step 2: Read and merge each file selected
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const text = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsText(file);
+        });
+
+        let parsed: any;
+        try {
+          parsed = JSON.parse(text);
+        } catch (jsonErr) {
+          throw new Error(`The file "${file.name}" is not a valid JSON file.`);
+        }
+
+        const isFullExport = 
+          Array.isArray(parsed.red) || 
+          Array.isArray(parsed.grey) || 
+          Array.isArray(parsed.marten) || 
+          Array.isArray(parsed.grey_trapping);
+
+        if (isFullExport) {
+          if (Array.isArray(parsed.red)) mergedDb.red = mergedDb.red.concat(parsed.red);
+          if (Array.isArray(parsed.grey)) mergedDb.grey = mergedDb.grey.concat(parsed.grey);
+          if (Array.isArray(parsed.marten)) mergedDb.marten = mergedDb.marten.concat(parsed.marten);
+          if (Array.isArray(parsed.grey_trapping)) mergedDb.grey_trapping = mergedDb.grey_trapping.concat(parsed.grey_trapping);
+        } else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.records)) {
+          // Identify species from file name prefix or fallback attributes in standard year-split files
+          const nameLower = file.name.toLowerCase();
+          let species: 'red' | 'grey' | 'marten' | 'grey_trapping' | null = null;
+
+          if (nameLower.includes('grey_trapping') || nameLower.includes('grey-trapping')) {
+            species = 'grey_trapping';
+          } else if (nameLower.includes('red_') || nameLower.includes('red-') || nameLower === 'red.json') {
+            species = 'red';
+          } else if (nameLower.includes('grey_') || nameLower.includes('grey-') || nameLower === 'grey.json') {
+            species = 'grey';
+          } else if (nameLower.includes('marten_') || nameLower.includes('marten-') || nameLower.includes('martes') || nameLower === 'marten.json') {
+            species = 'marten';
+          } else {
+            // Check scientific/taxon inside the first record element
+            const firstRec = parsed.records[0];
+            if (firstRec) {
+              const sciName = (firstRec.scientificName || firstRec.scientificName_ || '').toLowerCase();
+              if (sciName.includes('martes') || sciName.includes('marten')) {
+                species = 'marten';
+              } else if (sciName.includes('vulgaris')) {
+                species = 'red';
+              } else if (sciName.includes('carolinensis')) {
+                if (firstRec.trapsCount !== undefined || firstRec.trap_line !== undefined) {
+                  species = 'grey_trapping';
+                } else {
+                  species = 'grey';
+                }
+              }
+            }
+          }
+
+          if (!species) {
+            throw new Error(`Could not automatically identify species category for year-split file "${file.name}". Please rename your split file so its name starts with "red_", "grey_", "marten_", or "grey_trapping_".`);
+          }
+
+          mergedDb[species] = mergedDb[species].concat(parsed.records);
+        } else {
+          throw new Error(`Skipped "${file.name}": Unrecognized format. The upload must be either a complete database export or a species year-split file from your Downloads directory.`);
+        }
       }
 
+      // Step 3: De-duplicate records across all datasets to ensure impeccable integrity
+      const deduplicate = (records: any[]) => {
+        const seen = new Set<string | number>();
+        return records.filter(item => {
+          if (!item) return false;
+          // Support multiple potential ID attributes
+          const uid = item.id || item.id_ || item.occurrenceID || item.uuid;
+          if (uid === undefined || uid === null) return true; // fallback
+          if (seen.has(uid)) return false;
+          seen.add(uid);
+          return true;
+        });
+      };
+
+      mergedDb.red = deduplicate(mergedDb.red);
+      mergedDb.grey = deduplicate(mergedDb.grey);
+      mergedDb.marten = deduplicate(mergedDb.marten);
+      mergedDb.grey_trapping = deduplicate(mergedDb.grey_trapping);
+
+      // Step 4: POST the combined database to the server
       const response = await fetch('/api/import', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: text
+        body: JSON.stringify(mergedDb)
       });
 
       if (!response.ok) {
         const errData = await response.json();
-        throw new Error(errData.error || 'Failed to import the local copy.');
+        throw new Error(errData.error || 'Failed to apply import on the server.');
       }
 
       const result = await response.json();
-      alert(result.message || 'Database imported successfully! The page will now reload to display the imported local copy data.');
+      alert(`Successfully merged and imported ${files.length} selected files!\n- Total Red Squirrels: ${mergedDb.red.length}\n- Total Grey Squirrels: ${mergedDb.grey.length}\n- Total Pine Martens: ${mergedDb.marten.length}\n- Total Grey Trapping: ${mergedDb.grey_trapping.length}`);
       window.location.reload();
     } catch (err: any) {
       console.error('Import error:', err);
-      alert(err.message || 'An error occurred during import.');
+      alert(err.message || 'An error occurred during multi-file import processing.');
     } finally {
       setActionLoading(false);
       e.target.value = '';
@@ -1825,6 +1923,7 @@ export default function App() {
                     id="local-db-upload"
                     type="file"
                     accept=".json"
+                    multiple
                     onChange={handleLocalImport}
                     className="hidden"
                   />
