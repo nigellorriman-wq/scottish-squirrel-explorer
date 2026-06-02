@@ -1773,7 +1773,7 @@ service firebase.storage {
 
                       <div className="space-y-1">
                         <span className="font-bold text-stone-700">5. Upload Files to Firebase:</span>
-                        <p>Simply drag and drop the \`.json.gz\` files from your local downloads directly into your Firebase storage bucket root. The app takes care of the rest!</p>
+                        <p>Simply drag and drop either the <code>.json</code> or <code>.json.gz</code> files from your local downloads directly into your Firebase storage bucket root. If you upload uncompressed <code>.json</code> files, the app backend automatically compresses them to GZ format on-the-fly when first requested, saving you storage and maintaining super-fast load speeds!</p>
                       </div>
                     </div>
                   )}

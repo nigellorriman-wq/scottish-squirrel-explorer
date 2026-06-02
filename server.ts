@@ -277,26 +277,56 @@ async function fetchAndCacheFromFirebaseStorage(species: string, year: number): 
   if (!bucketName || bucketName === "MY_FIREBASE_STORAGE_BUCKET" || bucketName.trim() === "") {
     return null;
   }
-  const fileName = `${species}_${year}.json.gz`;
-  const url = `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(fileName)}?alt=media`;
   
+  const fileNameGz = `${species}_${year}.json.gz`;
+  const urlGz = `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(fileNameGz)}?alt=media`;
+  
+  // Try compressed first
   try {
-    console.log(`[Firebase Storage] Remote sync check. Downloading ${fileName} from: ${url}`);
-    const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 20000 });
+    console.log(`[Firebase Storage] Remote check: testing compressed file ${fileNameGz} from: ${urlGz}`);
+    const response = await axios.get(urlGz, { responseType: 'arraybuffer', timeout: 20000 });
     if (response.status === 200) {
       const buffer = Buffer.from(response.data);
       const yearFilePathGz = getSpeciesYearFilePath(species, year);
       await fs.writeFile(yearFilePathGz, buffer);
-      console.log(`[Firebase Storage] Successfully download-cached ${fileName} locally.`);
+      console.log(`[Firebase Storage] Successfully downloaded and cached compressed file ${fileNameGz} locally.`);
       return buffer;
     }
   } catch (err: any) {
     if (err.response && err.response.status === 404) {
-      console.log(`[Firebase Storage] File ${fileName} not in Storage (404). This is normal if there are no records for ${year}.`);
+      console.log(`[Firebase Storage] Compressed file ${fileNameGz} not found (404). Trying uncompressed .json instead...`);
     } else {
-      console.error(`[Firebase Storage] Network error downloading ${fileName}:`, err.message);
+      console.warn(`[Firebase Storage] Network check failed for ${fileNameGz}:`, err.message);
     }
   }
+
+  // Fallback to uncompressed JSON
+  const fileNameJson = `${species}_${year}.json`;
+  const urlJson = `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(fileNameJson)}?alt=media`;
+  
+  try {
+    console.log(`[Firebase Storage] Remote fallback check: downloading uncompressed file ${fileNameJson} from: ${urlJson}`);
+    const response = await axios.get(urlJson, { responseType: 'arraybuffer', timeout: 35000 });
+    if (response.status === 200) {
+      const uncompressedBuffer = Buffer.from(response.data);
+      
+      // Auto-compress the raw JSON to gzip in the backend on the fly
+      console.log(`[Firebase Storage] Downloaded raw file ${fileNameJson} (${uncompressedBuffer.length} bytes). Compressing to GZ on-the-fly...`);
+      const zippedBuffer = zlib.gzipSync(uncompressedBuffer);
+      
+      const yearFilePathGz = getSpeciesYearFilePath(species, year);
+      await fs.writeFile(yearFilePathGz, zippedBuffer);
+      console.log(`[Firebase Storage] Successfully compressed and cached ${fileNameJson} locally as ${yearFilePathGz} (${zippedBuffer.length} bytes).`);
+      return zippedBuffer;
+    }
+  } catch (err: any) {
+    if (err.response && err.response.status === 404) {
+      console.log(`[Firebase Storage] File ${fileNameJson} not found in Storage either (404). No records for ${year}.`);
+    } else {
+      console.error(`[Firebase Storage] Network error downloading uncompressed file ${fileNameJson}:`, err.message);
+    }
+  }
+
   return null;
 }
 
